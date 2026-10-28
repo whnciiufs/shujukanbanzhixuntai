@@ -35,28 +35,61 @@
 <script>
 window.__BOARD_ENC__=null;
 window.__BOARD_ENC_ERR__=null;
-window.__BOARD_PENDING_REJECT__=null;
-(function(){
-  var s=document.createElement("script");
-  s.src="https://shujukanbanzhixingtai.oss-cn-hangzhou.aliyuncs.com/boards/rider/board.enc.js";
-  s.onload=function(){ if(window.__BOARD_ENC_ERR__) window.__BOARD_PENDING_REJECT__=window.__BOARD_ENC_ERR__; };
-  s.onerror=function(){ window.__BOARD_PENDING_REJECT__="无法下载看板数据（网络错误或文件不存在）"; };
-  document.head.appendChild(s);
-})();
+window.__BOARD_URL__="https://shujukanbanzhixingtai.oss-cn-hangzhou.aliyuncs.com/boards/rider/board.enc.js";
+function __encSrc(){var u=window.__BOARD_URL__;return u+(u.indexOf('?')>=0?'&':'?')+'v='+Date.now();}
+function __loadEnc(){
+  return new Promise(function(res,rej){
+    window.__BOARD_ENC__=null;
+    var s=document.createElement("script");
+    s.src=__encSrc();
+    var done=false;
+    s.onload=function(){ if(done)return; done=true;
+      if(window.__BOARD_ENC__!==null&&window.__BOARD_ENC__!==undefined) res(window.__BOARD_ENC__);
+      else rej(new Error(window.__BOARD_ENC_ERR__||"密文为空")); };
+    s.onerror=function(){ if(done)return; done=true; rej(new Error("无法下载看板数据（网络错误）")); };
+    document.head.appendChild(s);
+    setTimeout(function(){ if(!done){done=true; rej(new Error("加载超时"));} },30000);
+  });
+}
 </script>
 <script>
 const SALT=new TextEncoder().encode("rider-board-static-v1");
 const ITERS=200000;
+let __PW__="";
 function __loadEncText(){
-  // 优先用 script 注入的密文；若脚本以纯文本形式注入则直接用
+  if(window.__BOARD_URL__){ return __loadEnc(); }
   if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined) return Promise.resolve(window.__BOARD_ENC__);
   return new Promise(function(res,rej){
     var t=setInterval(function(){
       if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined){clearInterval(t);res(window.__BOARD_ENC__);}
-      else if(window.__BOARD_PENDING_REJECT__){clearInterval(t);rej(new Error(window.__BOARD_PENDING_REJECT__));}
     },80);
     setTimeout(function(){clearInterval(t);rej(new Error("加载超时"));},30000);
   });
+}
+async function __render(txt, silent){
+  const err=document.getElementById('err');
+  try{
+    const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(__PW__),"PBKDF2",false,["deriveKey"]);
+    const key=await crypto.subtle.deriveKey(
+      {name:"PBKDF2",salt:SALT,iterations:ITERS,hash:"SHA-256"},
+      base,{name:"AES-GCM",length:256},false,["decrypt"]);
+    const parts=txt.split("|");
+    if(parts.length!==2)throw new Error("bad format");
+    const nonce=Uint8Array.from(atob(parts[0]),c=>c.charCodeAt(0));
+    const ct=Uint8Array.from(atob(parts[1]),c=>c.charCodeAt(0));
+    const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct);
+    const html=new TextDecoder().decode(plain);
+    const v=document.getElementById('viewer');
+    let f=v.querySelector('iframe');
+    if(!f){ f=document.createElement('iframe'); v.appendChild(f); }
+    f.style.width='100%';f.style.height='100%';f.style.border='0';
+    f.srcdoc=html;
+    document.getElementById('gate').style.display='none';
+    v.style.display='block';
+  }catch(e){
+    if(silent){ if(err) err.textContent='（后台刷新失败，仍显示上次数据）'; }
+    else { if(err) err.textContent='密码不正确，请重新输入'; }
+  }
 }
 async function unlock(){
   const pw=document.getElementById('pw').value;
@@ -70,26 +103,19 @@ async function unlock(){
     err.textContent='无法下载看板数据（网络错误或文件已被清理），请稍后重试';
     return;
   }
-  try{
-    const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
-    const key=await crypto.subtle.deriveKey(
-      {name:"PBKDF2",salt:SALT,iterations:ITERS,hash:"SHA-256"},
-      base,{name:"AES-GCM",length:256},false,["decrypt"]);
-    const parts=txt.split("|");
-    if(parts.length!==2)throw new Error("bad format");
-    const nonce=Uint8Array.from(atob(parts[0]),c=>c.charCodeAt(0));
-    const ct=Uint8Array.from(atob(parts[1]),c=>c.charCodeAt(0));
-    const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct);
-    const html=new TextDecoder().decode(plain);
-    const v=document.getElementById('viewer');
-    const f=document.createElement('iframe');
-    f.srcdoc=html;f.style.width='100%';f.style.height='100%';f.style.border='0';
-    v.appendChild(f);
-    document.getElementById('gate').style.display='none';
-    v.style.display='block';
-  }catch(e){
-    err.textContent='密码不正确，请重新输入';
+  __PW__=pw;
+  await __render(txt, false);
+  const v=document.getElementById('viewer');
+  if(v.style.display==='block' && !window.__REFRESH_TIMER__){
+    window.__REFRESH_TIMER__=setInterval(autoRefresh, 60000);
   }
+}
+async function autoRefresh(){
+  if(!__PW__) return;
+  try{
+    const txt=await __loadEncText();
+    await __render(txt, true);
+  }catch(e){ /* 静默失败，保留上次数据 */ }
 }
 </script>
 </body></html>
