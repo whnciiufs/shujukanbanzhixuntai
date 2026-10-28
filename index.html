@@ -36,6 +36,7 @@
 window.__BOARD_ENC__=null;
 window.__BOARD_ENC_ERR__=null;
 window.__BOARD_URL__="https://shujukanbanzhixingtai.oss-cn-hangzhou.aliyuncs.com/boards/rider/board.enc.js";
+window.__BOARD_VER__=null;
 function __encSrc(){var u=window.__BOARD_URL__;return u+(u.indexOf('?')>=0?'&':'?')+'v='+Date.now();}
 function __loadEnc(){
   return new Promise(function(res,rej){
@@ -51,11 +52,23 @@ function __loadEnc(){
     setTimeout(function(){ if(!done){done=true; rej(new Error("加载超时"));} },30000);
   });
 }
+function __verSrc(){var u=window.__BOARD_URL__.replace(/board\.enc\.js$/,'board.version');return u+(u.indexOf('?')>=0?'&':'?')+'v='+Date.now();}
+function __checkVer(){
+  return new Promise(function(res){
+    var s=document.createElement('script');
+    s.src=__verSrc();
+    var done=false;
+    s.onload=function(){ if(done)return; done=true; res(window.__BOARD_VER__); };
+    s.onerror=function(){ if(done)return; done=true; res(null); };
+    document.head.appendChild(s);
+  });
+}
 </script>
 <script>
 const SALT=new TextEncoder().encode("rider-board-static-v1");
 const ITERS=200000;
 let __PW__="";
+let __LAST_VER__=null;
 function __loadEncText(){
   if(window.__BOARD_URL__){ return __loadEnc(); }
   if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined) return Promise.resolve(window.__BOARD_ENC__);
@@ -106,15 +119,22 @@ async function unlock(){
   __PW__=pw;
   await __render(txt, false);
   const v=document.getElementById('viewer');
-  if(v.style.display==='block' && !window.__REFRESH_TIMER__){
-    window.__REFRESH_TIMER__=setInterval(autoRefresh, 60000);
+  if(v.style.display==='block'){
+    try{ __LAST_VER__=await __checkVer(); }catch(e){}
+    if(!window.__REFRESH_TIMER__){
+      window.__REFRESH_TIMER__=setInterval(autoRefresh, 30000);
+    }
   }
 }
 async function autoRefresh(){
   if(!__PW__) return;
   try{
-    const txt=await __loadEncText();
-    await __render(txt, true);
+    var ver=await __checkVer();
+    if(ver && ver!==__LAST_VER__){
+      __LAST_VER__=ver;
+      const txt=await __loadEncText();
+      await __render(txt, true);
+    }
   }catch(e){ /* 静默失败，保留上次数据 */ }
 }
 </script>
