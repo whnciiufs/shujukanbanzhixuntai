@@ -122,7 +122,7 @@ async function unlock(){
   if(v.style.display==='block'){
     try{ __LAST_VER__=await __checkVer(); }catch(e){}
     if(!window.__REFRESH_TIMER__){
-      window.__REFRESH_TIMER__=setInterval(autoRefresh, 5000);
+      window.__REFRESH_TIMER__=setInterval(autoRefresh, 30000);
     }
   }
 }
