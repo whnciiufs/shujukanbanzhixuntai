@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>骑手实时出勤看板</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:#0f172a;color:#e2e8f0;height:100vh;display:flex;align-items:center;justify-content:center}
+  #gate{text-align:center;padding:24px}
+  #gate .t{font-size:18px;margin-bottom:6px}
+  #gate .s{color:#94a3b8;margin-bottom:16px;font-size:13px}
+  #pw{padding:11px 13px;border-radius:9px;border:1px solid #334155;background:#1e293b;
+      color:#e2e8f0;font-size:15px;width:260px;outline:none}
+  #pw:focus{border-color:#3b7ddd}
+  button{margin-top:16px;padding:11px 26px;border:0;border-radius:9px;background:#3b7ddd;
+         color:#fff;font-size:15px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  #err{color:#f87171;margin-top:14px;font-size:13px;min-height:18px}
+  #viewer{display:none;width:100vw;height:100vh;background:#fff}
+  #viewer iframe{width:100%;height:100%;border:0;display:block}
+</style>
+</head>
+<body>
+<div id="gate">
+  <div class="t">🔒 骑手实时出勤看板</div>
+  <div class="s">请输入查看密码</div>
+  <div><input id="pw" type="password" placeholder="查看密码"
+       onkeydown="if(event.key==='Enter')unlock()"></div>
+  <button onclick="unlock()">进入看板</button>
+  <div id="err"></div>
+</div>
+<div id="viewer"></div>
+<script>
+window.__BOARD_ENC__=null;
+window.__BOARD_ENC_ERR__=null;
+window.__BOARD_PENDING_REJECT__=null;
+(function(){
+  var s=document.createElement("script");
+  s.src="https://shujukanbanzhixingtai.oss-cn-hangzhou.aliyuncs.com/boards/rider/board.enc.js";
+  s.onload=function(){ if(window.__BOARD_ENC_ERR__) window.__BOARD_PENDING_REJECT__=window.__BOARD_ENC_ERR__; };
+  s.onerror=function(){ window.__BOARD_PENDING_REJECT__="无法下载看板数据（网络错误或文件不存在）"; };
+  document.head.appendChild(s);
+})();
+</script>
+<script>
+const SALT=new TextEncoder().encode("rider-board-static-v1");
+const ITERS=200000;
+function __loadEncText(){
+  // 优先用 script 注入的密文；若脚本以纯文本形式注入则直接用
+  if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined) return Promise.resolve(window.__BOARD_ENC__);
+  return new Promise(function(res,rej){
+    var t=setInterval(function(){
+      if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined){clearInterval(t);res(window.__BOARD_ENC__);}
+      else if(window.__BOARD_PENDING_REJECT__){clearInterval(t);rej(new Error(window.__BOARD_PENDING_REJECT__));}
+    },80);
+    setTimeout(function(){clearInterval(t);rej(new Error("加载超时"));},30000);
+  });
+}
+async function unlock(){
+  const pw=document.getElementById('pw').value;
+  const err=document.getElementById('err');
+  if(!pw){err.textContent='请输入密码';return;}
+  err.textContent='校验中…';
+  let txt;
+  try{
+    txt=await __loadEncText();
+  }catch(e){
+    err.textContent='无法下载看板数据（网络错误或文件已被清理），请稍后重试';
+    return;
+  }
+  try{
+    const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+    const key=await crypto.subtle.deriveKey(
+      {name:"PBKDF2",salt:SALT,iterations:ITERS,hash:"SHA-256"},
+      base,{name:"AES-GCM",length:256},false,["decrypt"]);
+    const parts=txt.split("|");
+    if(parts.length!==2)throw new Error("bad format");
+    const nonce=Uint8Array.from(atob(parts[0]),c=>c.charCodeAt(0));
+    const ct=Uint8Array.from(atob(parts[1]),c=>c.charCodeAt(0));
+    const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct);
+    const html=new TextDecoder().decode(plain);
+    const v=document.getElementById('viewer');
+    const f=document.createElement('iframe');
+    f.srcdoc=html;f.style.width='100%';f.style.height='100%';f.style.border='0';
+    v.appendChild(f);
+    document.getElementById('gate').style.display='none';
+    v.style.display='block';
+  }catch(e){
+    err.textContent='密码不正确，请重新输入';
+  }
+}
+</script>
+</body></html>
