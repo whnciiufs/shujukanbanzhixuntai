@@ -2,7 +2,3 @@
   Cache-Control: no-cache
 /board.version
   Cache-Control: no-cache
-/boards/*/board.enc.js
-  Cache-Control: no-cache
-/boards/*/board.version
-  Cache-Control: no-cache
