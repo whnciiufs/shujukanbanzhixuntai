@@ -1,10 +1,4 @@
 /board.enc.js
   Cache-Control: no-cache
-  X-Rider-Test: ok
 /board.version
-  Cache-Control: no-cache
-  X-Rider-Test: ok
-/boards/*/board.enc.js
-  Cache-Control: no-cache
-/boards/*/board.version
   Cache-Control: no-cache
