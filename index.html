@@ -69,32 +69,10 @@ const SALT=new TextEncoder().encode("rider-board-static-v1");
 const ITERS=200000;
 let __PW__="";
 let __LAST_VER__=null;
-// 记住密码：存在 sessionStorage（当前标签页有效，关闭标签页即清除）。
-// 这样同事切后台 → 切回来、甚至误按了 F5，都不用重新输入密码。
-// 密码本身是看板的访问凭证，存本地会话存储比每次重输体验好得多。
-const __PW_KEY='rider_board_pw';
-function __savePw(p){ try{ sessionStorage.setItem(__PW_KEY,p); }catch(e){} }
-function __loadPw(){ try{ return sessionStorage.getItem(__PW_KEY)||''; }catch(e){ return ''; } }
-function __clearPw(){ try{ sessionStorage.removeItem(__PW_KEY); }catch(e){} }
-async function __autoEnter(){
-  // 页面已打开且本地记得密码 → 自动解密进入看板，不用手动输
-  var pw=__loadPw();
-  if(!pw) return false;
-  var inp=document.getElementById('pw');
-  if(inp) inp.value=pw;
-  var btn=document.getElementById('enter-btn');
-  try{
-    __PW__=pw;
-    var txt=await __loadEncText();
-    await __render(txt, false);
-    var v=document.getElementById('viewer');
-    if(v.style.display==='block'){
-      try{ __LAST_VER__=await __checkVer(); }catch(e){}
-      __startRefreshTimer();
-    }
-    return true;
-  }catch(e){ __PW__=""; return false; }
-}
+// 密码只存在内存变量 __PW__ 里，**不落盘、不进 sessionStorage**：
+//   · 切到后台再切回来 → 内存还在 → 自动刷新，不用重新输密码；
+//   · 按 F5 刷新 / 重新打开链接 → 页面重载、内存清空 → 回到密码门，需要重新输入。
+// 这既保留了日常查看的便利，又不会把看板密码长期留在同事电脑上。
 function __loadEncText(){
   if(window.__BOARD_URL__){ return __loadEnc(); }
   if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined) return Promise.resolve(window.__BOARD_ENC__);
@@ -170,12 +148,16 @@ async function unlock(){
     return;
   }
   __PW__=pw;
-  __savePw(pw);                       // 记住密码 → 下次打开/刷新不用再输
   await __render(txt, false);
   const v=document.getElementById('viewer');
   if(v.style.display==='block'){
     try{ __LAST_VER__=await __checkVer(); }catch(e){}
     __startRefreshTimer();
+  }else{
+    // 解密失败（密码错）→ 清掉内存里的密码，避免后续自动刷新一直用错密码
+    __PW__="";
+    var e2=document.getElementById('err');
+    if(e2 && !e2.textContent) e2.textContent='密码不正确，请重新输入';
   }
 }
 // ---- 自动刷新：切到后台暂停轮询，回到前台立即刷新（无需重新输密码）----
@@ -217,19 +199,8 @@ async function autoRefresh(){
     }
   }catch(e){ /* 静默失败，保留上次数据 */ }
 }
-// ---- 页面打开时：如果本地记得密码，直接自动进入看板 ----
-// 同事日常使用：打开链接 → 看到的是最新数据，完全不用再输密码。
-// 密码不对（被改了）时静默回落到密码门，不报错打扰。
-(async function(){
-  try{
-    if(__loadPw()){
-      var ok=await __autoEnter();
-      if(!ok){
-        var inp=document.getElementById('pw');
-        if(inp) inp.focus();
-      }
-    }
-  }catch(e){}
-})();
+// 页面加载时不做任何自动进入：密码只在内存里，刷新(F5)/重开链接都要重新输入。
+// 若浏览器里还残留上一版写入的 sessionStorage 密码，这里顺手清掉（旧版本遗留）。
+try{ sessionStorage.removeItem('rider_board_pw'); }catch(e){}
 </script>
 </body></html>
