@@ -28,7 +28,7 @@
   <div class="s">请输入查看密码</div>
   <div><input id="pw" type="password" placeholder="查看密码"
        onkeydown="if(event.key==='Enter')unlock()"></div>
-  <button id="enter-btn" onclick="unlock()">进入看板</button>
+  <button onclick="unlock()">进入看板</button>
   <div id="err"></div>
 </div>
 <div id="viewer"></div>
@@ -69,32 +69,6 @@ const SALT=new TextEncoder().encode("rider-board-static-v1");
 const ITERS=200000;
 let __PW__="";
 let __LAST_VER__=null;
-// 记住密码：存在 sessionStorage（当前标签页有效，关闭标签页即清除）。
-// 这样同事切后台 → 切回来、甚至误按了 F5，都不用重新输入密码。
-// 密码本身是看板的访问凭证，存本地会话存储比每次重输体验好得多。
-const __PW_KEY='rider_board_pw';
-function __savePw(p){ try{ sessionStorage.setItem(__PW_KEY,p); }catch(e){} }
-function __loadPw(){ try{ return sessionStorage.getItem(__PW_KEY)||''; }catch(e){ return ''; } }
-function __clearPw(){ try{ sessionStorage.removeItem(__PW_KEY); }catch(e){} }
-async function __autoEnter(){
-  // 页面已打开且本地记得密码 → 自动解密进入看板，不用手动输
-  var pw=__loadPw();
-  if(!pw) return false;
-  var inp=document.getElementById('pw');
-  if(inp) inp.value=pw;
-  var btn=document.getElementById('enter-btn');
-  try{
-    __PW__=pw;
-    var txt=await __loadEncText();
-    await __render(txt, false);
-    var v=document.getElementById('viewer');
-    if(v.style.display==='block'){
-      try{ __LAST_VER__=await __checkVer(); }catch(e){}
-      __startRefreshTimer();
-    }
-    return true;
-  }catch(e){ __PW__=""; return false; }
-}
 function __loadEncText(){
   if(window.__BOARD_URL__){ return __loadEnc(); }
   if(window.__BOARD_ENC__!==null && window.__BOARD_ENC__!==undefined) return Promise.resolve(window.__BOARD_ENC__);
@@ -170,44 +144,17 @@ async function unlock(){
     return;
   }
   __PW__=pw;
-  __savePw(pw);                       // 记住密码 → 下次打开/刷新不用再输
   await __render(txt, false);
   const v=document.getElementById('viewer');
   if(v.style.display==='block'){
     try{ __LAST_VER__=await __checkVer(); }catch(e){}
-    __startRefreshTimer();
+    if(!window.__REFRESH_TIMER__){
+      window.__REFRESH_TIMER__=setInterval(autoRefresh, 5000);
+    }
   }
 }
-// ---- 自动刷新：切到后台暂停轮询，回到前台立即刷新（无需重新输密码）----
-// 为什么这样做：看板页每 5 秒向 OSS 拉一次 32 字节的版本标记来判断「数据有没有更新」，
-// 同事把标签页切到后台时这个轮询纯属浪费 OSS 流量/请求数。
-// 切后台 → 停表；切回前台 → 立刻检查一次版本，有新数据就自动重拉并渲染。
-// 密码保存在内存变量 __PW__，切后台不会丢，所以回来不需要重新输入密码。
-function __startRefreshTimer(){
-  if(window.__REFRESH_TIMER__) return;
-  window.__REFRESH_TIMER__=setInterval(autoRefresh, 5000);
-}
-function __stopRefreshTimer(){
-  if(window.__REFRESH_TIMER__){
-    clearInterval(window.__REFRESH_TIMER__);
-    window.__REFRESH_TIMER__=null;
-  }
-}
-document.addEventListener('visibilitychange', function(){
-  if(!__PW__) return;                       // 还没进入看板，不管
-  if(document.hidden){
-    __stopRefreshTimer();                  // 后台：不轮询，省 OSS 流量
-  }else{
-    __startRefreshTimer();                 // 回到前台：恢复轮询
-    autoRefresh();                         // 并立刻检查一次 → 有新数据马上刷新
-  }
-});
-// 页面被关闭/重载时也停表，避免残留定时器
-window.addEventListener('pagehide', __stopRefreshTimer);
-window.addEventListener('beforeunload', __stopRefreshTimer);
 async function autoRefresh(){
   if(!__PW__) return;
-  if(document.hidden) return;              // 后台时即便定时器已跑也不请求
   try{
     var ver=await __checkVer();
     if(ver && ver!==__LAST_VER__){
@@ -217,19 +164,5 @@ async function autoRefresh(){
     }
   }catch(e){ /* 静默失败，保留上次数据 */ }
 }
-// ---- 页面打开时：如果本地记得密码，直接自动进入看板 ----
-// 同事日常使用：打开链接 → 看到的是最新数据，完全不用再输密码。
-// 密码不对（被改了）时静默回落到密码门，不报错打扰。
-(async function(){
-  try{
-    if(__loadPw()){
-      var ok=await __autoEnter();
-      if(!ok){
-        var inp=document.getElementById('pw');
-        if(inp) inp.focus();
-      }
-    }
-  }catch(e){}
-})();
 </script>
 </body></html>
