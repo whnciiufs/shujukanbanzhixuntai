@@ -79,13 +79,6 @@ function __loadEncText(){
     setTimeout(function(){clearInterval(t);rej(new Error("加载超时"));},30000);
   });
 }
-async function __gunzip(u8){
-  // 浏览器原生解压：DecompressionStream('gzip')（Chrome 80+/Edge/Safari 16.4+）
-  var ds=new DecompressionStream('gzip');
-  var stream=new Blob([u8]).stream().pipeThrough(ds);
-  var buf=await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
-}
 async function __render(txt, silent){
   const err=document.getElementById('err');
   try{
@@ -93,15 +86,11 @@ async function __render(txt, silent){
     const key=await crypto.subtle.deriveKey(
       {name:"PBKDF2",salt:SALT,iterations:ITERS,hash:"SHA-256"},
       base,{name:"AES-GCM",length:256},false,["decrypt"]);
-    // 密文可能带 'z' 前缀 = gzip 压缩过（体积降到 ~1/8）；旧密文无前缀直接解
-    var isZip = txt.charAt(0)==='z';
-    var payload = isZip ? txt.slice(1) : txt;
-    const parts=payload.split("|");
+    const parts=txt.split("|");
     if(parts.length!==2)throw new Error("bad format");
     const nonce=Uint8Array.from(atob(parts[0]),c=>c.charCodeAt(0));
     const ct=Uint8Array.from(atob(parts[1]),c=>c.charCodeAt(0));
-    var plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct);
-    if(isZip) plain=await __gunzip(plain);
+    const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:nonce},key,ct);
     const html=new TextDecoder().decode(plain);
     const v=document.getElementById('viewer');
     let f=v.querySelector('iframe');
