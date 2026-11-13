@@ -20,6 +20,10 @@
   #err{color:#f87171;margin-top:14px;font-size:13px;min-height:18px}
   #viewer{display:none;width:100vw;height:100vh;background:#fff}
   #viewer iframe{width:100%;height:100%;border:0;display:block}
+  /* 刷新状态提示：让「是否在自动更新」一眼可见，避免误以为卡住 */
+  #upd{position:fixed;right:14px;bottom:14px;z-index:99;background:rgba(15,23,42,.82);
+       color:#e2e8f0;font-size:12px;padding:5px 11px;border-radius:14px;
+       opacity:0;transition:opacity .25s;pointer-events:none}
 </style>
 </head>
 <body>
@@ -32,6 +36,7 @@
   <div id="err"></div>
 </div>
 <div id="viewer"></div>
+<div id="upd"></div>
 <script>
 window.__BOARD_ENC__=null;
 window.__BOARD_ENC_ERR__=null;
@@ -153,6 +158,7 @@ async function unlock(){
   if(v.style.display==='block'){
     try{ __LAST_VER__=await __checkVer(); }catch(e){}
     __startRefreshTimer();
+    __upd('已更新 ' + new Date().toTimeString().slice(0,5));
   }else{
     // 解密失败（密码错）→ 清掉内存里的密码，避免后续自动刷新一直用错密码
     __PW__="";
@@ -160,14 +166,23 @@ async function unlock(){
     if(e2 && !e2.textContent) e2.textContent='密码不正确，请重新输入';
   }
 }
-// ---- 自动刷新：切到后台暂停轮询，回到前台立即刷新（无需重新输密码）----
-// 为什么这样做：看板页每 5 秒向 OSS 拉一次 32 字节的版本标记来判断「数据有没有更新」，
-// 同事把标签页切到后台时这个轮询纯属浪费 OSS 流量/请求数。
-// 切后台 → 停表；切回前台 → 立刻检查一次版本，有新数据就自动重拉并渲染。
-// 密码保存在内存变量 __PW__，切后台不会丢，所以回来不需要重新输入密码。
+// ---- 自动刷新：前台每 5 秒查一次版本；后台降到每 60 秒（只拉 32 字节版本号，成本可忽略）----
+// 为什么后台还要查：早期版本切到后台就完全停表，用户切回来那一刻仍看到旧数据，
+// 容易误判成「看板不刷新了」。现在后台仍每分钟探一次，只是不下载大密文，
+// 只在页脚提示「有新数据」；切回前台的瞬间立刻渲染，体感是即时的。
+function __upd(t, hold){
+  var d=document.getElementById('upd'); if(!d) return;
+  d.textContent=t; d.style.opacity=1;
+  clearTimeout(window.__UPD_T__);
+  if(hold!==0) window.__UPD_T__=setTimeout(function(){ d.style.opacity=0; }, hold||2600);
+}
+function __setTimer(ms){
+  __stopRefreshTimer();
+  window.__REFRESH_TIMER__=setInterval(autoRefresh, ms);
+}
 function __startRefreshTimer(){
   if(window.__REFRESH_TIMER__) return;
-  window.__REFRESH_TIMER__=setInterval(autoRefresh, 5000);
+  __setTimer(document.hidden?60000:5000);
 }
 function __stopRefreshTimer(){
   if(window.__REFRESH_TIMER__){
@@ -177,26 +192,27 @@ function __stopRefreshTimer(){
 }
 document.addEventListener('visibilitychange', function(){
   if(!__PW__) return;                       // 还没进入看板，不管
-  if(document.hidden){
-    __stopRefreshTimer();                  // 后台：不轮询，省 OSS 流量
-  }else{
-    __startRefreshTimer();                 // 回到前台：恢复轮询
-    autoRefresh();                         // 并立刻检查一次 → 有新数据马上刷新
-  }
+  // 前台 5 秒一查；后台 60 秒一查（不下载密文，只标记「有新数据」）
+  __setTimer(document.hidden?60000:5000);
+  if(!document.hidden) autoRefresh();       // 回到前台：立刻检查并渲染，无需重新输密码
 });
 // 页面被关闭/重载时也停表，避免残留定时器
 window.addEventListener('pagehide', __stopRefreshTimer);
 window.addEventListener('beforeunload', __stopRefreshTimer);
 async function autoRefresh(){
   if(!__PW__) return;
-  if(document.hidden) return;              // 后台时即便定时器已跑也不请求
   try{
     var ver=await __checkVer();
-    if(ver && ver!==__LAST_VER__){
-      __LAST_VER__=ver;
-      const txt=await __loadEncText();
-      await __render(txt, true);
+    if(!ver || ver===__LAST_VER__) return;
+    if(document.hidden){                    // 后台：只提示，不下载不渲染（省流量/CPU）
+      __upd('有新数据 · 切回即刷新', 0);
+      return;
     }
+    __upd('更新中…', 0);
+    __LAST_VER__=ver;
+    const txt=await __loadEncText();
+    await __render(txt, true);
+    __upd('已更新 ' + new Date().toTimeString().slice(0,5));
   }catch(e){ /* 静默失败，保留上次数据 */ }
 }
 // 页面加载时不做任何自动进入：密码只在内存里，刷新(F5)/重开链接都要重新输入。
