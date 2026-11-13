@@ -66,7 +66,7 @@ function __checkVer(){
 </script>
 <script>
 const SALT=new TextEncoder().encode("rider-board-static-v1");
-const ITERS=200000;
+const ITERS=100000;
 let __PW__="";
 let __LAST_VER__=null;
 // 密码只存在内存变量 __PW__ 里，**不落盘、不进 sessionStorage**：
